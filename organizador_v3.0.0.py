@@ -39,6 +39,15 @@ FILE_CATEGORIES = {
 # Extensões de arquivos temporários a serem consideradas na limpeza
 TEMP_EXTENSIONS = ['.tmp', '.bak', '.~tmp', '.~bak', '.temp', '.~lock']
 
+def convert_bytes(num):
+    """Converte um número de bytes para uma string legível (KB, MB, GB)."""
+    for unit in ['bytes', 'KB', 'MB', 'GB', 'TB']:
+        if num < 1024.0:
+            return f"{num:.1f} {unit}"
+        num /= 1024.0
+    return f"{num:.1f} PB"
+
+
 def get_downloads_path():
     """Retorna o caminho absoluto para a pasta Downloads no ambiente Termux."""
     return os.path.expanduser('~/storage/downloads')
@@ -46,7 +55,7 @@ def get_downloads_path():
 def get_file_destination_paths(file_name, base_output_folder):
     """
     Determina a categoria e os caminhos de destino para um arquivo.
-    Retorna (categoria_folder_path, final_extension_folder_path).
+    Retorna (categoria_folder_path, final_extension_folder_path, category_name).
     """
     extension = os.path.splitext(file_name)[1].lower() # Pega a extensão e converte para minúsculas
     
@@ -60,7 +69,7 @@ def get_file_destination_paths(file_name, base_output_folder):
     extension_folder_name = f"{category_name}{extension.upper()}" # Ex: Fotos.JPG
     final_extension_folder_path = os.path.join(category_folder_path, extension_folder_name)
     
-    return category_folder_path, final_extension_folder_path
+    return category_folder_path, final_extension_folder_path, category_name
 
 def organize_files_in_downloads():
     """
@@ -74,7 +83,8 @@ def organize_files_in_downloads():
     if not os.path.exists(source_folder):
         print(f"Erro: A pasta de Downloads não foi encontrada em '{source_folder}'.")
         print("Certifique-se de ter executado 'termux-setup-storage' e concedido as permissões necessárias.")
-        return # Sai sem erro fatal para voltar ao menu
+        input("Pressione Enter para continuar.")
+        return 
 
     print(f"\n--- Analisando arquivos em '{source_folder}' ---")
 
@@ -93,12 +103,12 @@ def organize_files_in_downloads():
     if not all_files_in_source and not folders_to_move:
         print("Nenhum arquivo ou pasta para organizar encontrado na pasta Downloads.")
         input("Pressione Enter para continuar.")
-        return # Volta ao menu
+        return
 
     print("\nArquivos detectados para organização:")
     for file_name in all_files_in_source:
-        _, final_path = get_file_destination_paths(file_name, os.path.join(output_folder, "Arquivos"))
-        print(f"- {file_name} -> {os.path.basename(os.path.dirname(final_path))}/{os.path.basename(final_path)}/")
+        _, final_path, category = get_file_destination_paths(file_name, os.path.join(output_folder, "Arquivos"))
+        print(f"- {file_name} -> Categoria: {category} -> {os.path.basename(os.path.dirname(final_path))}/{os.path.basename(final_path)}/")
     
     if folders_to_move:
         print("\nPasta(s) detectada(s) para organização:")
@@ -116,6 +126,8 @@ def organize_files_in_downloads():
 
     total_items = len(all_files_in_source) + len(folders_to_move)
     processed_items = 0
+    moved_files_count = {} # Para estatísticas de arquivos
+    moved_folders_count = 0 # Para estatísticas de pastas
 
     # --- Configurações das Pastas Base ---
     main_archive_folder = os.path.join(output_folder, "Arquivos")
@@ -133,9 +145,10 @@ def organize_files_in_downloads():
             shutil.move(source_path_folder, destination_path_folder)
             print(f"Movido pasta: '{folder_name}' para '{os.path.basename(organized_folders_base_path)}/'")
             processed_items += 1
+            moved_folders_count += 1 # Incrementa contador de pastas movidas
         except Exception as e:
             print(f"Erro ao mover pasta '{folder_name}': {e}")
-            processed_items += 1
+            processed_items += 1 
         
         # Atualiza progresso no terminal
         if total_items > 0:
@@ -151,7 +164,7 @@ def organize_files_in_downloads():
             processed_items += 1
             continue
 
-        category_base_path, final_extension_folder_path = get_file_destination_paths(file_name, main_archive_folder)
+        category_base_path, final_extension_folder_path, category_name = get_file_destination_paths(file_name, main_archive_folder)
         
         os.makedirs(category_base_path, exist_ok=True)
         os.makedirs(final_extension_folder_path, exist_ok=True)
@@ -167,12 +180,14 @@ def organize_files_in_downloads():
                 suffix += 1
                 new_file_name = f"{base_name}_{suffix}{extension}"
             destination_path_file = os.path.join(final_extension_folder_path, new_file_name)
-            print(f"\nConflito: '{file_name}' renomeado para '{new_file_name}'")
+            print(f"\nConflito: '{file_name}' renomeado para '{new_file_name}'") 
 
         try:
             shutil.move(source_path_file, destination_path_file)
             print(f"\nMovido arquivo: '{file_name}' para '{os.path.basename(category_base_path)}/{os.path.basename(final_extension_folder_path)}/'")
             processed_items += 1
+            # Atualiza estatísticas de arquivos
+            moved_files_count[category_name] = moved_files_count.get(category_name, 0) + 1
         except Exception as e:
             print(f"\nErro ao mover arquivo '{file_name}': {e}")
             processed_items += 1
@@ -184,6 +199,20 @@ def organize_files_in_downloads():
 
     print("\n\nOrganização concluída com sucesso!")
     print(f"Total de {processed_items} itens processados na pasta Downloads.")
+
+    # --- Estatísticas da Organização ---
+    print("\n--- Resumo da Organização ---")
+    if moved_folders_count > 0:
+        print(f"Pastas movidas para 'Pastas_Organizadas/': {moved_folders_count}")
+    
+    if moved_files_count:
+        print("Arquivos movidos por categoria:")
+        for category, count in sorted(moved_files_count.items()):
+            print(f"- {category}: {count} arquivos")
+    else:
+        print("Nenhum arquivo foi movido.")
+    print("-----------------------------")
+
     input("Pressione Enter para continuar.")
 
 
@@ -195,7 +224,7 @@ def clean_files():
     downloads_path = get_downloads_path()
     
     files_to_clean = []
-    total_size_to_clean = 0
+    total_size_to_clean = 0 # Em bytes
 
     print(f"\n--- Analisando arquivos para limpeza em '{downloads_path}' ---")
 
@@ -208,13 +237,10 @@ def clean_files():
                 file_ext = os.path.splitext(file_name)[1].lower()
 
                 if file_size == 0:
-                    files_to_clean.append((file_path, "Vazio"))
+                    files_to_clean.append((file_path, "Vazio", file_size))
                 elif file_ext in TEMP_EXTENSIONS:
-                    files_to_clean.append((file_path, f"Temporário ({file_ext})"))
+                    files_to_clean.append((file_path, f"Temporário ({file_ext})", file_size))
                 
-                # Para calcular o tamanho total a ser liberado, inclua os arquivos vazios também
-                if file_size == 0 or file_ext in TEMP_EXTENSIONS:
-                    total_size_to_clean += file_size
             except Exception as e:
                 print(f"Erro ao analisar '{file_path}': {e}")
 
@@ -224,18 +250,11 @@ def clean_files():
         return
 
     print("\n--- Arquivos detectados para limpeza: ---")
-    for i, (f_path, reason) in enumerate(files_to_clean):
+    for i, (f_path, reason, f_size) in enumerate(files_to_clean):
         # Mostra o caminho relativo a downloads_path para melhor leitura
         relative_path = os.path.relpath(f_path, downloads_path)
-        print(f"{i+1}. {relative_path} (Motivo: {reason}, Tamanho: {os.path.getsize(f_path)} bytes)")
-    
-    # Converte bytes para uma unidade mais legível
-    def convert_bytes(num):
-        for unit in ['bytes', 'KB', 'MB', 'GB']:
-            if num < 1024.0:
-                return f"{num:.1f} {unit}"
-            num /= 1024.0
-        return f"{num:.1f} TB"
+        print(f"{i+1}. {relative_path} (Motivo: {reason}, Tamanho: {convert_bytes(f_size)})")
+        total_size_to_clean += f_size # Acumula o tamanho aqui
 
     print(f"\nTotal de {len(files_to_clean)} arquivos a serem removidos, totalizando {convert_bytes(total_size_to_clean)}.")
     
@@ -248,15 +267,19 @@ def clean_files():
 
     print("\nIniciando limpeza...")
     removed_count = 0
-    for f_path, _ in files_to_clean:
+    removed_size_total = 0 # Em bytes
+
+    for f_path, _, f_size in files_to_clean:
         try:
             os.remove(f_path)
             print(f"Removido: {os.path.relpath(f_path, downloads_path)}")
             removed_count += 1
+            removed_size_total += f_size
         except Exception as e:
             print(f"Erro ao remover '{os.path.relpath(f_path, downloads_path)}': {e}")
     
     print(f"\nLimpeza concluída! {removed_count} arquivos foram removidos.")
+    print(f"Espaço total liberado: {convert_bytes(removed_size_total)}.")
     input("Pressione Enter para continuar.")
 
 
@@ -289,5 +312,3 @@ def main_menu():
 
 if __name__ == "__main__":
     main_menu()
-
-
