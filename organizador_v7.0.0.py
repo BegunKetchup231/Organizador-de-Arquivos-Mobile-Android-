@@ -1,0 +1,1 @@
+carro = int(input("Nome do carro: "))
