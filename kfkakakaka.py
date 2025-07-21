@@ -1,0 +1,1 @@
+organizador = int(input("Digite o local")).strip()
